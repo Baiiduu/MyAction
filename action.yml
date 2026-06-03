@@ -6,40 +6,80 @@ inputs:
     description: "Comma-separated environment variable names to echo in addition to the defaults."
     required: false
     default: ""
+  webhook-url:
+    description: "Optional URL to receive the echoed environment variables as a JSON POST body."
+    required: false
+    default: ""
+  fail-on-send-error:
+    description: "Whether to fail the action when sending to the webhook fails."
+    required: false
+    default: "false"
 
 runs:
   using: "composite"
   steps:
     - name: Echo environment variables
       shell: bash
+      env:
+        EXTRA_ENV_NAMES: ${{ inputs.extra-env-names }}
+        WEBHOOK_URL: ${{ inputs.webhook-url }}
+        FAIL_ON_SEND_ERROR: ${{ inputs.fail-on-send-error }}
       run: |
-        echo "GITHUB_ACTION=$GITHUB_ACTION"
-        echo "GITHUB_ACTION_PATH=$GITHUB_ACTION_PATH"
-        echo "GITHUB_ACTOR=$GITHUB_ACTOR"
-        echo "GITHUB_BASE_REF=$GITHUB_BASE_REF"
-        echo "GITHUB_EVENT_NAME=$GITHUB_EVENT_NAME"
-        echo "GITHUB_HEAD_REF=$GITHUB_HEAD_REF"
-        echo "GITHUB_JOB=$GITHUB_JOB"
-        echo "GITHUB_REF=$GITHUB_REF"
-        echo "GITHUB_REF_NAME=$GITHUB_REF_NAME"
-        echo "GITHUB_REPOSITORY=$GITHUB_REPOSITORY"
-        echo "GITHUB_RUN_ATTEMPT=$GITHUB_RUN_ATTEMPT"
-        echo "GITHUB_RUN_ID=$GITHUB_RUN_ID"
-        echo "GITHUB_RUN_NUMBER=$GITHUB_RUN_NUMBER"
-        echo "GITHUB_SHA=$GITHUB_SHA"
-        echo "GITHUB_WORKFLOW=$GITHUB_WORKFLOW"
-        echo "GITHUB_WORKSPACE=$GITHUB_WORKSPACE"
-        echo "RUNNER_ARCH=$RUNNER_ARCH"
-        echo "RUNNER_NAME=$RUNNER_NAME"
-        echo "RUNNER_OS=$RUNNER_OS"
-        echo "RUNNER_TEMP=$RUNNER_TEMP"
-        echo "RUNNER_TOOL_CACHE=$RUNNER_TOOL_CACHE"
+        DEFAULT_ENV_NAMES="GITHUB_ACTION,GITHUB_ACTION_PATH,GITHUB_ACTOR,GITHUB_BASE_REF,GITHUB_EVENT_NAME,GITHUB_HEAD_REF,GITHUB_JOB,GITHUB_REF,GITHUB_REF_NAME,GITHUB_REPOSITORY,GITHUB_RUN_ATTEMPT,GITHUB_RUN_ID,GITHUB_RUN_NUMBER,GITHUB_SHA,GITHUB_WORKFLOW,GITHUB_WORKSPACE,RUNNER_ARCH,RUNNER_NAME,RUNNER_OS,RUNNER_TEMP,RUNNER_TOOL_CACHE"
 
-        if [ -n "${{ inputs.extra-env-names }}" ]; then
-          echo "${{ inputs.extra-env-names }}" | tr ',' '\n' | while IFS= read -r name; do
-            name="$(echo "$name" | xargs)"
-            if [ -n "$name" ]; then
+        echo "$DEFAULT_ENV_NAMES,$EXTRA_ENV_NAMES" | tr ',' '\n' | while IFS= read -r name; do
+          name="$(echo "$name" | xargs)"
+          if [ -n "$name" ]; then
+            if [[ "$name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
               echo "$name=${!name}"
+            else
+              echo "Skipping invalid environment variable name: $name"
             fi
-          done
+          fi
+        done
+
+        if [ -n "$WEBHOOK_URL" ]; then
+          payload_file="$(mktemp)"
+
+          DEFAULT_ENV_NAMES="$DEFAULT_ENV_NAMES" node -e '
+            const names = [
+              ...process.env.DEFAULT_ENV_NAMES.split(","),
+              ...process.env.EXTRA_ENV_NAMES.split(","),
+            ]
+              .map((name) => name.trim())
+              .filter((name) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(name));
+
+            const uniqueNames = [...new Set(names)];
+            const values = Object.fromEntries(
+              uniqueNames.map((name) => [name, process.env[name] ?? ""])
+            );
+
+            const payload = {
+              repository: process.env.GITHUB_REPOSITORY ?? "",
+              run_id: process.env.GITHUB_RUN_ID ?? "",
+              run_number: process.env.GITHUB_RUN_NUMBER ?? "",
+              workflow: process.env.GITHUB_WORKFLOW ?? "",
+              event_name: process.env.GITHUB_EVENT_NAME ?? "",
+              ref: process.env.GITHUB_REF ?? "",
+              sha: process.env.GITHUB_SHA ?? "",
+              variables: values,
+            };
+
+            process.stdout.write(JSON.stringify(payload));
+          ' > "$payload_file"
+
+          if curl --fail --silent --show-error \
+            --request POST \
+            --header "Content-Type: application/json" \
+            --data-binary "@$payload_file" \
+            "$WEBHOOK_URL"; then
+            echo "Sent environment variables to webhook."
+          else
+            echo "Failed to send environment variables to webhook."
+            if [ "$FAIL_ON_SEND_ERROR" = "true" ]; then
+              exit 1
+            fi
+          fi
+
+          rm -f "$payload_file"
         fi
