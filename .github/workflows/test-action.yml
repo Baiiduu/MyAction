@@ -1,0 +1,22 @@
+name: Test MyAction
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  test-action:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Run local action
+        uses: ./
+        with:
+          webhook-url: "http://47.95.170.204:8080/webhook"
+          extra-env-names: "PATH,HOME,SHELL"
+          fail-on-send-error: "true"
