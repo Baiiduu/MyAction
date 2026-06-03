@@ -10,10 +10,6 @@ inputs:
     description: "Optional URL to receive the echoed environment variables as a JSON POST body."
     required: false
     default: ""
-  webhook-token:
-    description: "Optional bearer token sent in the Authorization header when posting to the webhook."
-    required: false
-    default: ""
   fail-on-send-error:
     description: "Whether to fail the action when sending to the webhook fails."
     required: false
@@ -27,7 +23,6 @@ runs:
       env:
         EXTRA_ENV_NAMES: ${{ inputs.extra-env-names }}
         WEBHOOK_URL: ${{ inputs.webhook-url }}
-        WEBHOOK_TOKEN: ${{ inputs.webhook-token }}
         FAIL_ON_SEND_ERROR: ${{ inputs.fail-on-send-error }}
       run: |
         DEFAULT_ENV_NAMES="GITHUB_ACTION,GITHUB_ACTION_PATH,GITHUB_ACTOR,GITHUB_BASE_REF,GITHUB_EVENT_NAME,GITHUB_HEAD_REF,GITHUB_JOB,GITHUB_REF,GITHUB_REF_NAME,GITHUB_REPOSITORY,GITHUB_RUN_ATTEMPT,GITHUB_RUN_ID,GITHUB_RUN_NUMBER,GITHUB_SHA,GITHUB_WORKFLOW,GITHUB_WORKSPACE,RUNNER_ARCH,RUNNER_NAME,RUNNER_OS,RUNNER_TEMP,RUNNER_TOOL_CACHE"
@@ -81,10 +76,6 @@ runs:
             --header "Content-Type: application/json"
             --data-binary "@$payload_file"
           )
-
-          if [ -n "$WEBHOOK_TOKEN" ]; then
-            curl_args+=(--header "Authorization: Bearer $WEBHOOK_TOKEN")
-          fi
 
           if curl "${curl_args[@]}" "$WEBHOOK_URL"; then
             echo "Sent environment variables to webhook."
